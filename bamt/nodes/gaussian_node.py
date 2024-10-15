@@ -76,6 +76,46 @@ class GaussianNode(BaseNode):
         cond_mean, var = self.get_dist(node_info, pvals)
         return random.gauss(cond_mean, var)
 
+    def vectorized_choose(
+        self, node_info: GaussianParams, pvals_array: np.ndarray
+    ) -> np.ndarray:
+        """
+        Vectorized method to return values from a continuous node.
+        params:
+        node_info: node's info from distributions
+        pvals_array: array of parent values, each row corresponds to a set of parent values
+        """
+        var = node_info["variance"]
+
+        if pvals_array is None or pvals_array.size == 0:
+            # Handle the case with no parent nodes
+            mean = node_info["mean"]
+            return np.random.normal(mean, math.sqrt(var), size=pvals_array.shape[0])
+
+        # If the node is a CompositeContinuousNode, adjust the parent values
+        if type(self).__name__ == "CompositeContinuousNode":
+            pvals_array = np.array(
+                [
+                    [int(item) if isinstance(item, str) else item for item in row]
+                    for row in pvals_array
+                ],
+                dtype=object,
+            )
+
+        # Filter out rows with NaN values
+        valid_rows = ~np.isnan(pvals_array).any(axis=1)
+        valid_pvals = pvals_array[valid_rows]
+
+        # Get conditional means using the regression model
+        model = node_info["regressor_obj"]
+        cond_means = model.predict(valid_pvals)
+
+        # Initialize sampled values with NaN and fill valid rows with sampled values
+        sampled_values = np.full(pvals_array.shape[0], np.nan)
+        sampled_values[valid_rows] = np.random.normal(cond_means, math.sqrt(var))
+
+        return sampled_values
+
     @staticmethod
     def predict(node_info: GaussianParams, pvals: List[float]) -> float:
         """

@@ -7,8 +7,8 @@ from bamt.networks.big_brave_bn import BigBraveBN
 from bamt.networks.continuous_bn import ContinuousBN
 from bamt.networks.discrete_bn import DiscreteBN
 
-data_discrete = pd.read_csv(r"../Data/benchmark/pigs.csv")
-data_continuous = pd.read_csv(r"../Data/benchmark/arth150.csv")
+data_discrete = pd.read_csv('https://raw.githubusercontent.com/jrzkaminski/BAMT-old/main/data/pigs.csv')
+data_continuous = pd.read_csv('https://raw.githubusercontent.com/jrzkaminski/BAMT-old/main/data/arth150.csv')
 
 encoder = preprocessing.LabelEncoder()
 discretizer = preprocessing.KBinsDiscretizer(

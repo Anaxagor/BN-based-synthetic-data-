@@ -496,9 +496,7 @@ class BaseNetwork(object):
         }
         return self._save_to_file(f"{bn_name}.json", outdict)
 
-    def load(self,
-             input_data: Union[str, Dict],
-             models_dir: str = "/"):
+    def load(self, input_data: Union[str, Dict], models_dir: str = "/"):
         """
         Function to load the whole BN from json file.
         :param input_data: input path to json file with bn.
@@ -756,6 +754,130 @@ class BaseNetwork(object):
             return sample_output
         else:
             return seq
+
+    def get_node_by_name(self, name):
+        """
+        Returns the node object given its name.
+
+        :param name: The name of the node.
+        :return: Node object if found, None otherwise.
+        """
+        for node in self.nodes:
+            if node.name == name:
+                return node
+        return None
+
+    def topologically_sorted_nodes(self):
+        from collections import defaultdict, deque
+
+        # Create a dictionary to keep track of the in-degrees of each node
+        in_degree = {node.name: 0 for node in self.nodes}
+        for edge in self.edges:
+            in_degree[edge[1]] += 1
+
+        # Create a dictionary to keep track of nodes that each node is connected to
+        graph = defaultdict(list)
+        for edge in self.edges:
+            graph[edge[0]].append(edge[1])
+
+        # Queue for nodes with in-degree of 0
+        queue = deque([node for node in self.nodes if in_degree[node.name] == 0])
+
+        sorted_nodes = []
+        while queue:
+            node = queue.popleft()
+            sorted_nodes.append(node)
+
+            # Decrease the in-degree of neighboring nodes and add to queue if in-degree becomes 0
+            for neighbor in graph[node.name]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(self.get_node_by_name(neighbor))
+
+        if len(sorted_nodes) != len(self.nodes):
+            raise ValueError(
+                "The network has a cycle, and thus cannot be topologically sorted"
+            )
+
+        return sorted_nodes
+
+    def vectorized_sample(
+        self,
+        n: int,
+        batch_size: int,
+        models_dir: Optional[str] = None,
+        evidence: Optional[Dict[str, Union[str, int, float]]] = None,
+        as_df: bool = True,
+        predict: bool = False,
+        filter_neg: bool = True,
+    ) -> Union[None, pd.DataFrame, List[Dict[str, Union[str, int, float]]]]:
+        """
+        Vectorized sampling from Bayesian Network with batch processing.
+        n: number of samples
+        batch_size: size of each batch for sampling
+        evidence: values for nodes from user
+        filter_neg: either filter negative vals or not.
+        """
+        random.seed()
+        if not self.distributions.items():
+            logger_network.error(
+                "Parameter learning wasn't done. Call fit_parameters method"
+            )
+            return None
+
+        sample_output_dfs = []  # List to hold batches of sample outputs
+
+        for batch_start in range(0, n, batch_size):
+            batch_end = min(batch_start + batch_size, n)
+            current_batch_size = batch_end - batch_start
+            batch_output = {}
+
+            for node in self.topologically_sorted_nodes():
+                parents = node.cont_parents + node.disc_parents
+                if evidence is not None and node.name in evidence:
+                    batch_output[node.name] = np.full(
+                        current_batch_size, evidence[node.name]
+                    )
+                else:
+                    if not parents:
+                        pvals = None
+                    else:
+                        pvals = np.column_stack(
+                            [
+                                batch_output[parent][:current_batch_size]
+                                for parent in parents
+                            ]
+                        )
+
+                    node_data = self.distributions[node.name]
+                    if predict:
+                        batch_output[node.name] = node.vectorized_predict(
+                            node_data, pvals, current_batch_size
+                        )
+                    else:
+                        batch_output[node.name] = node.vectorized_choose(
+                            node_data, pvals, current_batch_size
+                        )
+
+            # Convert batch output to DataFrame and store
+            batch_output_df = pd.DataFrame.from_dict(batch_output)
+            sample_output_dfs.append(batch_output_df)
+
+        # Concatenate all batch DataFrames
+        sample_output_df = pd.concat(sample_output_dfs, ignore_index=True)
+        # Filter negative values if required
+        if filter_neg:
+            positive_columns = [
+                node.name
+                for node in self.nodes
+                if self.descriptor["signs"].get(node.name) == "pos"
+            ]
+            sample_output_df = sample_output_df[
+                (sample_output_df[positive_columns] >= 0).all(axis=1)
+            ]
+            sample_output_df.reset_index(drop=True, inplace=True)
+
+        return sample_output_df if as_df else sample_output_df.to_dict("records")
 
     def predict(
         self,

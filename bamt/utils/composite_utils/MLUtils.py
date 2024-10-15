@@ -1,9 +1,8 @@
 import json
 from random import choice
-
-import pkg_resources
 from typing import Union
 
+import pkg_resources
 from catboost import CatBoostClassifier, CatBoostRegressor
 from golem.core.dag.graph_node import GraphNode
 from sklearn.cluster import KMeans

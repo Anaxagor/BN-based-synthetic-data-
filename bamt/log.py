@@ -39,7 +39,9 @@ class BamtLogger:
         for logger in self.loggers.values():
             if self.has_handler(logger, handler_class):
                 self.remove_handler_type(logger, handler_class)
-                logger.addHandler(logging.NullHandler() if not value else logging.root.handlers[0])
+                logger.addHandler(
+                    logging.NullHandler() if not value else logging.root.handlers[0]
+                )
 
     def switch_file_out(self, value: bool, log_file: str):
         """
